@@ -1,6 +1,35 @@
+# Dependencies
 node_modules/
+
+# Build
 dist/
+
+# Logs
 *.log
+npm-debug.log*
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Test & Coverage
 coverage/
+
+# Environment
 .env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test data (skills downloaded for testing)
+skills/
+.claude/
+.trae/
+
+# Package
+*.tgz
