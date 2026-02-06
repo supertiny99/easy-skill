@@ -1,0 +1,78 @@
+{
+  "name": "@supertiny99/easy-skill",
+  "version": "1.0.0",
+  "description": "TUI tool for managing skills - download, organize and create symlinks for .claude and .trae",
+  "main": "dist/index.js",
+  "bin": {
+    "easy-skill": "./dist/index.js",
+    "es": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/index.ts",
+    "link": "npm link",
+    "link:global": "npm run build && npm link -g easy-skill",
+    "prepublishOnly": "npm run build",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "version": "git add .",
+    "postversion": "git push && git push --tags",
+    "push": "git push && git push --tags",
+    "release": "npm run build && npm run push",
+    "release:patch": "npm version patch && npm run push",
+    "release:minor": "npm version minor && npm run push",
+    "release:major": "npm version major && npm run push"
+  },
+  "keywords": [
+    "skill",
+    "skills",
+    "claude",
+    "trae",
+    "windsurf",
+    "cli",
+    "tui",
+    "manager",
+    "symlink",
+    "download",
+    "git"
+  ],
+  "author": "supertiny99 <supertiny99@gmail.com>",
+  "license": "MIT",
+  "type": "commonjs",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/supertiny99/easy-skill.git"
+  },
+  "bugs": {
+    "url": "https://github.com/supertiny99/easy-skill/issues"
+  },
+  "homepage": "https://github.com/supertiny99/easy-skill#readme",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "dependencies": {
+    "chalk": "^5.6.2",
+    "commander": "^12.1.0",
+    "fs-extra": "^11.3.3",
+    "prompts": "^2.4.2",
+    "simple-git": "^3.27.0"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/node": "^25.0.10",
+    "@types/prompts": "^2.4.9",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  }
+}
