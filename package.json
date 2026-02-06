@@ -4,8 +4,8 @@
   "description": "TUI tool for managing skills - download, organize and create symlinks for .claude and .trae",
   "main": "dist/index.js",
   "bin": {
-    "easy-skill": "./dist/index.js",
-    "es": "./dist/index.js"
+    "easy-skill": "dist/index.js",
+    "es": "dist/index.js"
   },
   "files": [
     "dist",
