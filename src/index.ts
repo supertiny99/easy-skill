@@ -9,6 +9,7 @@ import { downloadSkill, listLocalSkills, removeSkill, skillExists } from './lib/
 import { linkSkillToIDE, unlinkSkillFromIDE, getLinkedSkills, checkSymlinkStatus, SUPPORTED_IDES } from './lib/skill/linker';
 import { IDEType, SkillSource } from './lib/skill/schema';
 import { exploreRepository, copySkillFromExplore, cleanupExplore, SkillCandidate } from './lib/skill/explorer';
+import { browseAndSelect } from './ui/skill-browser';
 
 const SKILLS_DIR = 'skills';
 const program = new Command();
@@ -68,48 +69,25 @@ program
       process.exit(1);
     }
 
-    // 0 candidates
-    if (exploreResult.skills.length === 0) {
-      console.error(chalk.red('No skill candidates found in repository'));
-      await cleanupExplore(exploreResult.tempPath);
-      process.exit(1);
-    }
-
     let selectedSkills: SkillCandidate[];
 
-    if (exploreResult.skills.length === 1) {
-      // 1 candidate: auto-select
-      const skill = exploreResult.skills[0];
-      console.log(chalk.green(`  Found 1 skill: ${skill.name}${skill.description ? ` - ${skill.description}` : ''}`));
-      selectedSkills = [skill];
-    } else if (options.all) {
-      // --all: select all
+    if (options.all) {
+      // --all: use flat discovery
+      if (exploreResult.skills.length === 0) {
+        console.error(chalk.red('No skill candidates found in repository'));
+        await cleanupExplore(exploreResult.tempPath);
+        process.exit(1);
+      }
       console.log(chalk.green(`  Found ${exploreResult.skills.length} skills, downloading all (--all)`));
       selectedSkills = exploreResult.skills;
     } else {
-      // Multiple candidates: interactive multiselect
-      console.log(chalk.green(`  Found ${exploreResult.skills.length} skill candidate(s)`));
-
-      const { picked } = await prompts({
-        type: 'multiselect',
-        name: 'picked',
-        message: 'Select skills to download:',
-        choices: exploreResult.skills.map(s => ({
-          title: s.hasSkillFile ? `✨ ${s.name}` : `📁 ${s.name}`,
-          description: s.description || `Path: ${s.path}`,
-          value: s,
-          selected: false
-        })),
-        instructions: false,
-        hint: '- [space] select, [a] toggle all, [enter] confirm'
-      });
-
-      if (!picked || picked.length === 0) {
+      // Interactive: directory browser
+      selectedSkills = await browseAndSelect(exploreResult.tempPath);
+      if (selectedSkills.length === 0) {
         console.log(chalk.yellow('No skills selected'));
         await cleanupExplore(exploreResult.tempPath);
         return;
       }
-      selectedSkills = picked;
     }
 
     // Install selected skills

@@ -5,6 +5,7 @@ import fs from 'fs-extra';
 import { downloadSkill, listLocalSkills, skillExists, removeSkill } from '../lib/skill/downloader';
 import { linkSkillToIDE, unlinkSkillFromIDE, getLinkedSkills, checkSymlinkStatus, SUPPORTED_IDES } from '../lib/skill/linker';
 import { getRemoteBranches, exploreRepository, copySkillFromExplore, cleanupExplore } from '../lib/skill/explorer';
+import { browseAndSelect } from './skill-browser';
 import { SkillSource, IDEType } from '../lib/skill/schema';
 
 const SKILLS_DIR = 'skills';
@@ -113,51 +114,10 @@ async function downloadFromGitAction(): Promise<void> {
     return;
   }
 
-  if (exploreResult.skills.length === 0) {
-    console.log(chalk.yellow('  No skill candidates found in repository'));
-    await cleanupExplore(exploreResult.tempPath);
+  // Step 4: Interactive directory browser
+  const selectedSkills = await browseAndSelect(exploreResult.tempPath);
 
-    // Fallback to manual input
-    const { manualInput } = await prompts({
-      type: 'confirm',
-      name: 'manualInput',
-      message: 'Enter skill path manually?',
-      initial: true
-    });
-
-    if (manualInput) {
-      await downloadFromGitManual(url, selectedBranch);
-    }
-    return;
-  }
-
-  // Step 4: Let user select skill(s) - multiselect with toggle all
-  console.log(chalk.green(`  Found ${exploreResult.skills.length} skill candidate(s)`));
-  console.log(chalk.gray('  Press [a] to toggle all, [space] to select, [enter] to confirm\n'));
-
-  const skillChoices = exploreResult.skills.map(s => ({
-    title: s.hasSkillFile ? `✨ ${s.name}` : `📁 ${s.name}`,
-    description: s.description || `Path: ${s.path}`,
-    value: s,
-    selected: false
-  }));
-
-  const { selectedSkills } = await prompts({
-    type: 'multiselect',
-    name: 'selectedSkills',
-    message: 'Select skills to download:',
-    choices: skillChoices,
-    instructions: false,
-    hint: '- [space] select, [a] toggle all, [enter] confirm',
-    onState: (state: any) => {
-      // Handle 'a' key for toggle all
-      if (state.value && state._) {
-        // This is handled by the prompt internally for some versions
-      }
-    }
-  });
-
-  if (!selectedSkills || selectedSkills.length === 0) {
+  if (selectedSkills.length === 0) {
     console.log(chalk.yellow('No skills selected'));
     await cleanupExplore(exploreResult.tempPath);
     return;

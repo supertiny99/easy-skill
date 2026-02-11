@@ -23,6 +23,13 @@ export interface RepoExploreResult {
   tempPath: string;
 }
 
+export interface DirectoryEntry {
+  name: string;
+  path: string;
+  type: 'directory' | 'skill' | 'resource';
+  description?: string;
+}
+
 /**
  * Get remote branches from a Git repository URL
  */
@@ -101,7 +108,7 @@ export async function exploreRepository(
  */
 async function findSkillCandidates(repoPath: string, maxDepth: number = 3): Promise<SkillCandidate[]> {
   const candidates: SkillCandidate[] = [];
-  const skipDirs = new Set(['node_modules', 'dist', 'build', '.git', 'test', 'tests', '__tests__', 'docs', 'coverage', '.vscode', '.idea']);
+  const skipDirs = SKIP_DIRS;
 
   async function scanDirectory(dirPath: string, relativePath: string, depth: number): Promise<void> {
     if (depth > maxDepth) return;
@@ -228,6 +235,105 @@ async function checkSkillCandidate(
     hasSkillFile,
     description
   };
+}
+
+const SKIP_DIRS = new Set(['node_modules', 'dist', 'build', '.git', 'test', 'tests', '__tests__', 'docs', 'coverage', '.vscode', '.idea']);
+
+/**
+ * Get directory entries for a specific level (non-recursive)
+ * Returns classified entries: directory (browsable), skill (selectable), resource (selectable)
+ */
+export async function getDirectoryEntries(
+  repoPath: string,
+  relativePath: string = ''
+): Promise<DirectoryEntry[]> {
+  const dirPath = relativePath ? path.join(repoPath, relativePath) : repoPath;
+  const entries: DirectoryEntry[] = [];
+
+  // Check if root itself is a skill (only at root level)
+  if (!relativePath) {
+    const rootCandidate = await checkSkillCandidate(path.basename(repoPath), repoPath, '.');
+    if (rootCandidate && rootCandidate.hasSkillFile) {
+      entries.push({
+        name: rootCandidate.name,
+        path: '.',
+        type: 'skill',
+        description: rootCandidate.description
+      });
+    }
+  }
+
+  let dirEntries;
+  try {
+    dirEntries = await fs.readdir(dirPath, { withFileTypes: true });
+  } catch {
+    return entries;
+  }
+
+  for (const entry of dirEntries) {
+    if (!entry.isDirectory() || entry.name.startsWith('.') || SKIP_DIRS.has(entry.name.toLowerCase())) {
+      continue;
+    }
+
+    const fullPath = path.join(dirPath, entry.name);
+    const entryRelativePath = relativePath ? path.join(relativePath, entry.name) : entry.name;
+
+    const candidate = await checkSkillCandidate(entry.name, fullPath, entryRelativePath);
+
+    // Check if this directory has browsable subdirectories
+    const hasSubDirs = await hasChildDirectories(fullPath);
+
+    if (candidate && candidate.hasSkillFile) {
+      // Has skill indicator file → skill (selectable)
+      entries.push({
+        name: entry.name,
+        path: entryRelativePath,
+        type: 'skill',
+        description: candidate.description
+      });
+    } else if (hasSubDirs) {
+      // Has subdirectories → directory (browsable)
+      entries.push({
+        name: entry.name,
+        path: entryRelativePath,
+        type: 'directory',
+        description: candidate?.description
+      });
+    } else if (candidate) {
+      // Has content files but no skill file and no subdirs → resource (selectable)
+      entries.push({
+        name: entry.name,
+        path: entryRelativePath,
+        type: 'resource',
+        description: candidate.description
+      });
+    }
+    // else: empty directory, skip
+  }
+
+  // Sort: directories first, then skills, then resources; alphabetically within each group
+  const typeOrder = { directory: 0, skill: 1, resource: 2 };
+  entries.sort((a, b) => {
+    if (a.path === '.') return -1;
+    if (b.path === '.') return 1;
+    const orderDiff = typeOrder[a.type] - typeOrder[b.type];
+    if (orderDiff !== 0) return orderDiff;
+    return a.name.localeCompare(b.name);
+  });
+
+  return entries;
+}
+
+/**
+ * Check if a directory has any browsable child directories
+ */
+async function hasChildDirectories(dirPath: string): Promise<boolean> {
+  try {
+    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+    return entries.some(e => e.isDirectory() && !e.name.startsWith('.') && !SKIP_DIRS.has(e.name.toLowerCase()));
+  } catch {
+    return false;
+  }
 }
 
 /**
