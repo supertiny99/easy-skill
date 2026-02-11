@@ -30,6 +30,7 @@ coverage/
 skills/
 .claude/
 .trae/
+.windsurf/
 
 # Package
 *.tgz

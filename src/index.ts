@@ -83,6 +83,7 @@ program
   .description('Create symlinks for a skill')
   .option('--claude', 'Link to .claude/skills')
   .option('--trae', 'Link to .trae/skills')
+  .option('--windsurf', 'Link to .windsurf/skills')
   .option('-a, --all', 'Link to all supported IDEs')
   .action(async (skillId: string, options: any) => {
     try {
@@ -100,6 +101,7 @@ program
       } else {
         if (options.claude) ides.push('claude');
         if (options.trae) ides.push('trae');
+        if (options.windsurf) ides.push('windsurf');
       }
 
       if (ides.length === 0) {
@@ -126,6 +128,7 @@ program
   .description('Remove symlinks for a skill')
   .option('--claude', 'Unlink from .claude/skills')
   .option('--trae', 'Unlink from .trae/skills')
+  .option('--windsurf', 'Unlink from .windsurf/skills')
   .option('-a, --all', 'Unlink from all IDEs')
   .action(async (skillId: string, options: any) => {
     try {
@@ -135,6 +138,7 @@ program
       } else {
         if (options.claude) ides.push('claude');
         if (options.trae) ides.push('trae');
+        if (options.windsurf) ides.push('windsurf');
       }
 
       if (ides.length === 0) {

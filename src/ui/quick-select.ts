@@ -282,7 +282,9 @@ async function downloadFromGitAction(): Promise<void> {
       name: 'ides',
       message: 'Select IDEs to link:',
       choices: SUPPORTED_IDES.map(ide => ({
-        title: ide === 'claude' ? '🤖 Claude (.claude/skills)' : '🚀 Trae (.trae/skills)',
+        title: ide === 'claude' ? '🤖 Claude (.claude/skills)'
+             : ide === 'trae' ? '🚀 Trae (.trae/skills)'
+             : '🌊 Windsurf (.windsurf/skills)',
         value: ide,
         selected: true
       })),
@@ -426,7 +428,9 @@ async function createLinksForSkill(skillPath: string, skillId: string): Promise<
     name: 'ides',
     message: 'Select IDEs to link:',
     choices: SUPPORTED_IDES.map(ide => ({
-      title: ide === 'claude' ? '🤖 Claude (.claude/skills)' : '🚀 Trae (.trae/skills)',
+      title: ide === 'claude' ? '🤖 Claude (.claude/skills)'
+           : ide === 'trae' ? '🚀 Trae (.trae/skills)'
+           : '🌊 Windsurf (.windsurf/skills)',
       value: ide,
       selected: true
     })),
@@ -480,7 +484,9 @@ async function linkAction(): Promise<void> {
     name: 'ides',
     message: 'Select IDEs to link:',
     choices: SUPPORTED_IDES.map(ide => ({
-      title: ide === 'claude' ? '🤖 Claude (.claude/skills)' : '🚀 Trae (.trae/skills)',
+      title: ide === 'claude' ? '🤖 Claude (.claude/skills)'
+           : ide === 'trae' ? '🚀 Trae (.trae/skills)'
+           : '🌊 Windsurf (.windsurf/skills)',
       value: ide,
       selected: true
     })),
@@ -517,7 +523,9 @@ async function unlinkAction(): Promise<void> {
     name: 'ides',
     message: 'Select IDEs to unlink from:',
     choices: SUPPORTED_IDES.map(ide => ({
-      title: ide === 'claude' ? '🤖 Claude' : '🚀 Trae',
+      title: ide === 'claude' ? '🤖 Claude'
+           : ide === 'trae' ? '🚀 Trae'
+           : '🌊 Windsurf',
       value: ide,
       selected: true
     })),
@@ -620,7 +628,9 @@ async function listAction(): Promise<void> {
   console.log(chalk.bold('\n🔗 IDE Links:'));
   for (const ide of SUPPORTED_IDES) {
     const linkedSkills = await getLinkedSkills(ide);
-    const ideName = ide === 'claude' ? 'Claude' : 'Trae';
+    const ideName = ide === 'claude' ? 'Claude'
+                  : ide === 'trae' ? 'Trae'
+                  : 'Windsurf';
     console.log(chalk.cyan(`  ${ideName}:`));
     if (linkedSkills.length === 0) {
       console.log(chalk.gray('    No skills linked'));

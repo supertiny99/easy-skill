@@ -19,7 +19,7 @@ export interface SkillRegistry {
   lastUpdated?: string;
 }
 
-export type IDEType = 'claude' | 'trae';
+export type IDEType = 'claude' | 'trae' | 'windsurf';
 
 export interface LinkTarget {
   ide: IDEType;
@@ -30,7 +30,8 @@ export interface LinkTarget {
 
 export const IDE_SKILL_PATHS: Record<IDEType, string> = {
   claude: '.claude/skills',
-  trae: '.trae/skills'
+  trae: '.trae/skills',
+  windsurf: '.windsurf/skills'
 };
 
-export const SUPPORTED_IDES: IDEType[] = ['claude', 'trae'];
+export const SUPPORTED_IDES: IDEType[] = ['claude', 'trae', 'windsurf'];

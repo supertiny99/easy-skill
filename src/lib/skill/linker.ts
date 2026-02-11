@@ -17,6 +17,8 @@ export async function createSymlink(
   sourcePath: string,
   targetPath: string
 ): Promise<void> {
+  const isWindows = process.platform === 'win32';
+
   // Ensure target parent directory exists
   await fs.ensureDir(path.dirname(targetPath));
 
@@ -30,8 +32,30 @@ export async function createSymlink(
     }
   }
 
-  // Create symlink
-  await fs.symlink(sourcePath, targetPath, 'dir');
+  // Create symlink with platform-specific handling
+  if (isWindows) {
+    try {
+      // Windows: Try junction first (no admin privileges required)
+      await fs.symlink(sourcePath, targetPath, 'junction');
+    } catch (junctionErr: any) {
+      try {
+        // Fallback to dir symlink (requires admin privileges or developer mode)
+        await fs.symlink(sourcePath, targetPath, 'dir');
+      } catch (symlinkErr: any) {
+        throw new Error(
+          `无法创建符号链接到 ${targetPath}\n` +
+          `原因: ${symlinkErr.message}\n` +
+          `解决方案:\n` +
+          `  1. 以管理员身份运行终端\n` +
+          `  2. 或启用 Windows 开发者模式（设置 > 更新和安全 > 开发者选项）\n` +
+          `  3. 或使用 Windows 10/11 创建者更新及以上版本`
+        );
+      }
+    }
+  } else {
+    // Unix systems: Use standard dir symlink
+    await fs.symlink(sourcePath, targetPath, 'dir');
+  }
 }
 
 export async function removeSymlink(targetPath: string): Promise<void> {
