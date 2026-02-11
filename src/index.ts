@@ -8,6 +8,7 @@ import { quickSelect } from './ui/quick-select';
 import { downloadSkill, listLocalSkills, removeSkill, skillExists } from './lib/skill/downloader';
 import { linkSkillToIDE, unlinkSkillFromIDE, getLinkedSkills, checkSymlinkStatus, SUPPORTED_IDES } from './lib/skill/linker';
 import { IDEType, SkillSource } from './lib/skill/schema';
+import { exploreRepository, copySkillFromExplore, cleanupExplore, SkillCandidate } from './lib/skill/explorer';
 
 const SKILLS_DIR = 'skills';
 const program = new Command();
@@ -27,53 +28,163 @@ program
 program
   .command('download <url>')
   .alias('dl')
-  .description('Download a skill from git repository')
+  .description('Download skill(s) from git repository (smart explore)')
   .option('-b, --branch <branch>', 'Git branch')
   .option('-s, --subdir <subdir>', 'Subdirectory in the repository')
   .option('-i, --id <id>', 'Skill ID (folder name)')
   .option('-l, --link', 'Create symlinks after download')
+  .option('-a, --all', 'Download all discovered skills without prompting')
   .action(async (url: string, options: any) => {
-    try {
-      const skillId = options.id || path.basename(url, '.git').replace(/^skill-/, '');
-      const targetDir = path.join(process.cwd(), SKILLS_DIR);
+    const targetDir = path.join(process.cwd(), SKILLS_DIR);
 
-      const source: SkillSource = {
-        type: 'git',
-        url,
-        branch: options.branch,
-        subdir: options.subdir
-      };
-
-      if (await skillExists(targetDir, skillId)) {
-        const { overwrite } = await prompts({
-          type: 'confirm',
-          name: 'overwrite',
-          message: `Skill "${skillId}" exists. Overwrite?`,
-          initial: false
-        });
-        if (!overwrite) {
-          console.log(chalk.yellow('Cancelled'));
-          return;
+    // Precise download: when both --subdir and --id are specified, use legacy direct download
+    if (options.subdir && options.id) {
+      try {
+        const source: SkillSource = { type: 'git', url, branch: options.branch, subdir: options.subdir };
+        if (await skillExists(targetDir, options.id)) {
+          const { overwrite } = await prompts({ type: 'confirm', name: 'overwrite', message: `Skill "${options.id}" exists. Overwrite?`, initial: false });
+          if (!overwrite) { console.log(chalk.yellow('Cancelled')); return; }
         }
+        console.log(chalk.blue(`Downloading skill "${options.id}"...`));
+        const skill = await downloadSkill(source, targetDir, options.id);
+        console.log(chalk.green(`✓ Downloaded to: ${skill.localPath}`));
+        if (options.link) {
+          for (const ide of SUPPORTED_IDES) {
+            try { const link = await linkSkillToIDE(skill.localPath!, options.id, ide); console.log(chalk.green(`✓ Linked to ${ide}: ${link.targetPath}`)); }
+            catch (err: any) { console.error(chalk.red(`✗ Failed to link to ${ide}: ${err.message}`)); }
+          }
+        }
+      } catch (err: any) { console.error(chalk.red(`Error: ${err.message}`)); process.exit(1); }
+      return;
+    }
+
+    // Smart explore mode
+    let exploreResult;
+    try {
+      console.log(chalk.blue('🔍 Exploring repository...'));
+      exploreResult = await exploreRepository(url, options.branch);
+    } catch (err: any) {
+      console.error(chalk.red(`Error exploring repository: ${err.message}`));
+      process.exit(1);
+    }
+
+    // 0 candidates
+    if (exploreResult.skills.length === 0) {
+      console.error(chalk.red('No skill candidates found in repository'));
+      await cleanupExplore(exploreResult.tempPath);
+      process.exit(1);
+    }
+
+    let selectedSkills: SkillCandidate[];
+
+    if (exploreResult.skills.length === 1) {
+      // 1 candidate: auto-select
+      const skill = exploreResult.skills[0];
+      console.log(chalk.green(`  Found 1 skill: ${skill.name}${skill.description ? ` - ${skill.description}` : ''}`));
+      selectedSkills = [skill];
+    } else if (options.all) {
+      // --all: select all
+      console.log(chalk.green(`  Found ${exploreResult.skills.length} skills, downloading all (--all)`));
+      selectedSkills = exploreResult.skills;
+    } else {
+      // Multiple candidates: interactive multiselect
+      console.log(chalk.green(`  Found ${exploreResult.skills.length} skill candidate(s)`));
+
+      const { picked } = await prompts({
+        type: 'multiselect',
+        name: 'picked',
+        message: 'Select skills to download:',
+        choices: exploreResult.skills.map(s => ({
+          title: s.hasSkillFile ? `✨ ${s.name}` : `📁 ${s.name}`,
+          description: s.description || `Path: ${s.path}`,
+          value: s,
+          selected: false
+        })),
+        instructions: false,
+        hint: '- [space] select, [a] toggle all, [enter] confirm'
+      });
+
+      if (!picked || picked.length === 0) {
+        console.log(chalk.yellow('No skills selected'));
+        await cleanupExplore(exploreResult.tempPath);
+        return;
       }
+      selectedSkills = picked;
+    }
 
-      console.log(chalk.blue(`Downloading skill "${skillId}"...`));
-      const skill = await downloadSkill(source, targetDir, skillId);
-      console.log(chalk.green(`✓ Downloaded to: ${skill.localPath}`));
+    // Install selected skills
+    const installedSkills: { path: string; id: string }[] = [];
+    console.log(chalk.blue(`\n📦 Installing ${selectedSkills.length} skill(s)...`));
 
-      if (options.link) {
-        for (const ide of SUPPORTED_IDES) {
-          try {
-            const link = await linkSkillToIDE(skill.localPath!, skillId, ide);
-            console.log(chalk.green(`✓ Linked to ${ide}: ${link.targetPath}`));
-          } catch (err: any) {
-            console.error(chalk.red(`✗ Failed to link to ${ide}: ${err.message}`));
+    for (const skill of selectedSkills) {
+      const finalId = options.id && selectedSkills.length === 1 ? options.id : skill.name;
+
+      // Conflict check
+      if (await skillExists(targetDir, finalId)) {
+        if (options.all) {
+          // --all mode: auto-overwrite
+        } else {
+          const { overwrite } = await prompts({ type: 'confirm', name: 'overwrite', message: `Skill "${finalId}" exists. Overwrite?`, initial: false });
+          if (!overwrite) {
+            console.log(chalk.yellow(`  Skipped "${finalId}"`));
+            continue;
           }
         }
       }
-    } catch (err: any) {
-      console.error(chalk.red(`Error: ${err.message}`));
-      process.exit(1);
+
+      try {
+        const destPath = await copySkillFromExplore(exploreResult.tempPath, skill.path, targetDir, finalId);
+        console.log(chalk.green(`  ✓ ${finalId}`));
+        installedSkills.push({ path: destPath, id: finalId });
+      } catch (err: any) {
+        console.error(chalk.red(`  ✗ ${finalId}: ${err.message}`));
+      }
+    }
+
+    // Cleanup temp directory
+    await cleanupExplore(exploreResult.tempPath);
+
+    if (installedSkills.length === 0) {
+      console.log(chalk.yellow('\nNo skills were installed'));
+      return;
+    }
+
+    console.log(chalk.green(`\n✓ Installed ${installedSkills.length} skill(s)`));
+
+    // Link handling
+    if (options.link) {
+      // --link: auto-link to all IDEs
+      for (const { path: skillPath, id: skillId } of installedSkills) {
+        for (const ide of SUPPORTED_IDES) {
+          try { await linkSkillToIDE(skillPath, skillId, ide); console.log(chalk.green(`  ✓ ${skillId} -> ${ide}`)); }
+          catch (err: any) { console.error(chalk.red(`  ✗ ${skillId} -> ${ide}: ${err.message}`)); }
+        }
+      }
+    } else {
+      // Prompt for linking
+      const { createLinks } = await prompts({ type: 'confirm', name: 'createLinks', message: 'Create symlinks to IDE skill directories?', initial: true });
+      if (createLinks) {
+        const { ides } = await prompts({
+          type: 'multiselect',
+          name: 'ides',
+          message: 'Select IDEs to link:',
+          choices: SUPPORTED_IDES.map(ide => ({
+            title: ide === 'claude' ? '🤖 Claude (.claude/skills)' : ide === 'trae' ? '🚀 Trae (.trae/skills)' : '🌊 Windsurf (.windsurf/skills)',
+            value: ide,
+            selected: true
+          })),
+          instructions: false,
+          hint: '- Space to select. Return to submit'
+        });
+        if (ides && ides.length > 0) {
+          for (const { path: skillPath, id: skillId } of installedSkills) {
+            for (const ide of ides as IDEType[]) {
+              try { await linkSkillToIDE(skillPath, skillId, ide); console.log(chalk.green(`  ✓ ${skillId} -> ${ide}`)); }
+              catch (err: any) { console.error(chalk.red(`  ✗ ${skillId} -> ${ide}: ${err.message}`)); }
+            }
+          }
+        }
+      }
     }
   });
 
