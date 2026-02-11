@@ -4,9 +4,28 @@ import path from 'path';
 import { SkillCandidate, DirectoryEntry, getDirectoryEntries } from '../lib/skill/explorer';
 
 interface BrowseAction {
-  action: 'navigate' | 'toggle' | 'confirm' | 'cancel';
+  action: 'navigate' | 'toggle' | 'toggle_all' | 'confirm' | 'cancel' | 'search';
+  isAction: boolean;
   path?: string;
   entry?: DirectoryEntry;
+}
+
+interface BrowseChoice {
+  title: string;
+  description?: string;
+  value: BrowseAction;
+  searchName?: string;
+  searchDescription?: string;
+}
+
+function suggestChoices(input: string, choices: BrowseChoice[]): BrowseChoice[] {
+  if (!input) return choices;
+  const query = input.toLowerCase();
+  return choices.filter(choice => {
+    const name = (choice.searchName || '').toLowerCase();
+    const desc = (choice.searchDescription || '').toLowerCase();
+    return name.includes(query) || desc.includes(query);
+  });
 }
 
 /**
@@ -41,25 +60,18 @@ export async function browseAndSelect(tempPath: string): Promise<SkillCandidate[
       candidateMap.set(entry.path, entry);
     }
 
-    // Build choices
-    const choices: { title: string; description?: string; value: BrowseAction }[] = [];
-
-    // ⬆️ Back to parent (only when not at root)
-    if (currentPath) {
-      choices.push({
-        title: chalk.gray('⬆️  ..'),
-        description: 'back',
-        value: { action: 'navigate', path: path.dirname(currentPath) === '.' ? '' : path.dirname(currentPath) }
-      });
-    }
+    // Build content choices (used by both main select and search autocomplete)
+    const contentChoices: BrowseChoice[] = [];
 
     // 📁 Browsable directories
     for (const entry of entries) {
       if (entry.type === 'directory') {
-        choices.push({
+        contentChoices.push({
           title: `📁 ${entry.name}`,
           description: entry.description || undefined,
-          value: { action: 'navigate', path: entry.path }
+          value: { action: 'navigate', isAction: false, path: entry.path },
+          searchName: entry.name,
+          searchDescription: entry.description
         });
       }
     }
@@ -71,12 +83,50 @@ export async function browseAndSelect(tempPath: string): Promise<SkillCandidate[
         const check = isSelected ? chalk.green('◉') : chalk.gray('◯');
         const icon = entry.type === 'skill' ? '✨' : '📄';
         const nameDisplay = isSelected ? chalk.green(entry.name) : entry.name;
-        choices.push({
+        contentChoices.push({
           title: `${check} ${icon} ${nameDisplay}`,
           description: entry.description || `Path: ${entry.path}`,
-          value: { action: 'toggle', path: entry.path, entry }
+          value: { action: 'toggle', isAction: false, path: entry.path, entry },
+          searchName: entry.name,
+          searchDescription: entry.description
         });
       }
+    }
+
+    // Build main select choices
+    const choices: BrowseChoice[] = [];
+
+    // ⬆️ Back to parent (only when not at root)
+    if (currentPath) {
+      choices.push({
+        title: chalk.gray('⬆️  ..'),
+        description: 'back',
+        value: { action: 'navigate', isAction: true, path: path.dirname(currentPath) === '.' ? '' : path.dirname(currentPath) }
+      });
+    }
+
+    // 🔍 Search (only when there are content items to search)
+    if (contentChoices.length > 0) {
+      choices.push({
+        title: chalk.blue(`🔍 Search (${contentChoices.length} items)`),
+        description: 'type to filter by name or description',
+        value: { action: 'search' as const, isAction: true }
+      });
+    }
+
+    // Add content choices to main list
+    choices.push(...contentChoices);
+
+    // 🔘 Toggle all (only when there are selectable items in current level)
+    const selectableEntries = entries.filter(e => e.type === 'skill' || e.type === 'resource');
+    if (selectableEntries.length > 0) {
+      const allSelected = selectableEntries.every(e => selected.has(e.path));
+      choices.push({
+        title: allSelected
+          ? chalk.yellow(`🔘 Deselect all (${selectableEntries.length} items)`)
+          : chalk.yellow(`🔘 Select all (${selectableEntries.length} items)`),
+        value: { action: 'toggle_all' as const, isAction: true }
+      });
     }
 
     // ✅ Confirm (with count)
@@ -85,22 +135,52 @@ export async function browseAndSelect(tempPath: string): Promise<SkillCandidate[
       title: selectedCount > 0
         ? chalk.green(`✅ Confirm download (${selectedCount} selected)`)
         : chalk.gray(`✅ Confirm download (${selectedCount} selected)`),
-      value: { action: 'confirm' }
+      value: { action: 'confirm', isAction: true }
     });
 
     // ❌ Cancel
     choices.push({
       title: chalk.red('❌ Cancel'),
-      value: { action: 'cancel' }
+      value: { action: 'cancel', isAction: true }
     });
+
+    let forceConfirm = false;
+    const onKeypress = (_ch: string, key: any) => {
+      if (key?.name === 'tab') {
+        forceConfirm = true;
+        process.nextTick(() => {
+          process.stdin.emit('keypress', '\r', { name: 'return' });
+        });
+      }
+    };
+    process.stdin.on('keypress', onKeypress);
 
     const { choice } = await prompts({
       type: 'select',
       name: 'choice',
       message: `Browse & select skills:`,
       choices,
-      hint: 'Navigate directories or toggle selections'
+      hint: '↑↓ navigate, Enter select, Tab confirm'
     });
+
+    process.stdin.removeListener('keypress', onKeypress);
+
+    if (forceConfirm) {
+      if (selected.size === 0) {
+        console.log(chalk.yellow('  No items selected yet'));
+      } else {
+        return Array.from(selected).map(selectedPath => {
+          const entry = candidateMap.get(selectedPath)!;
+          return {
+            name: entry.name,
+            path: entry.path,
+            hasSkillFile: entry.type === 'skill',
+            description: entry.description
+          };
+        });
+      }
+      continue;
+    }
 
     // Ctrl+C or no choice
     if (!choice) {
@@ -108,6 +188,30 @@ export async function browseAndSelect(tempPath: string): Promise<SkillCandidate[
     }
 
     switch (choice.action) {
+      case 'search': {
+        const { searchChoice } = await prompts({
+          type: 'autocomplete',
+          name: 'searchChoice',
+          message: 'Search skills:',
+          choices: contentChoices,
+          suggest: (input: string, choices: BrowseChoice[]) => Promise.resolve(suggestChoices(input, choices)),
+          limit: 20,
+          hint: 'Type to filter, ↑↓ navigate, Enter select, Esc cancel'
+        } as any);
+        if (searchChoice) {
+          if (searchChoice.action === 'navigate') {
+            currentPath = searchChoice.path || '';
+          } else if (searchChoice.action === 'toggle' && searchChoice.path) {
+            if (selected.has(searchChoice.path)) {
+              selected.delete(searchChoice.path);
+            } else {
+              selected.add(searchChoice.path);
+            }
+          }
+        }
+        break;
+      }
+
       case 'navigate':
         currentPath = choice.path || '';
         break;
@@ -121,6 +225,19 @@ export async function browseAndSelect(tempPath: string): Promise<SkillCandidate[
           }
         }
         break;
+
+      case 'toggle_all': {
+        const currentSelectables = entries.filter(e => e.type === 'skill' || e.type === 'resource');
+        const allCurrentSelected = currentSelectables.every(e => selected.has(e.path));
+        for (const entry of currentSelectables) {
+          if (allCurrentSelected) {
+            selected.delete(entry.path);
+          } else {
+            selected.add(entry.path);
+          }
+        }
+        break;
+      }
 
       case 'confirm':
         if (selected.size === 0) {
