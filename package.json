@@ -1,6 +1,6 @@
 {
   "name": "@supertiny99/easy-skill",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "TUI tool for managing skills - download, organize and create symlinks for .claude and .trae",
   "main": "dist/index.js",
   "bin": {
